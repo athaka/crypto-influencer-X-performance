@@ -22,9 +22,10 @@ This is a module to track Twitter influencers, extract Contract Addresses (CA) f
 - AI Query System – Allow interactive search for querying insights.
 
 ### Example Output
-Influencer	|Token	CA	        |Tweet Time	|Price @5m	|Price @10m	|Price @15m	|% Change
----
-@elonmusk	|$DOGE	0x123...abc	|10:00 AM	|$0.08	    |$0.085	    |$0.09	    |+12%
+
+Influencer  | Token | CA          | Tweet Time | Price @5m | Price @10m | Price @15m | % Change
+------------|-------|-------------|------------|-----------|------------|------------|---------
+@elonmusk   | $DOGE | 0x123...abc | 10:00 AM   | $0.08     | $0.085     | $0.09      | +12%
 
 
 ## Technical Requirements
