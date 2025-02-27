@@ -1,5 +1,4 @@
 # Practice Task: Analyst Module (Phase 1 - Data Extraction & Processing)
----
 ## Objective
 This is a module to track Twitter influencers, extract Contract Addresses (CA) from their posts, and analyze price movements. It will help identify potential trading patterns by tracking price action at 5-minute, 10-minute, and 15-minute intervals after an influencer's tweet. Focus is the Solana blockchain.
 
@@ -24,6 +23,7 @@ This is a module to track Twitter influencers, extract Contract Addresses (CA) f
 
 ### Example Output
 Influencer	|Token	CA	        |Tweet Time	|Price @5m	|Price @10m	|Price @15m	|% Change
+---
 @elonmusk	|$DOGE	0x123...abc	|10:00 AM	|$0.08	    |$0.085	    |$0.09	    |+12%
 
 
