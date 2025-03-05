@@ -10,7 +10,7 @@ import re
 import time
 
 # Twitter API authentication
-bearer_token = "your_actual_bearer_token_here"  # Replace with your token
+bearer_token = "your_bearer_token"  # Replace with your token
 client = tweepy.Client(bearer_token=bearer_token)
 print("Twitter API authenticated successfully!")
 
@@ -67,15 +67,15 @@ if user_id:
     current_time = datetime.utcnow().replace(tzinfo=timezone.utc)
     since_time = current_time - timedelta(days=days)
 
-    # Fetch tweets with pagination (up to ~500 tweets due to free tier limit)
+    # Fetch tweets with pagination (up to ~50 tweets due to free tier limit)
     all_tweets = []
     pagination_token = None
-    max_requests = 5  # Approx. 500 tweets (100 per request)
+    max_requests = 5  # Approx. 50 tweets (10 per request)
     for i in range(max_requests):
         try:
             tweets = client.get_users_tweets(
                 id=user_id,
-                max_results=100,  # Max per request in free tier
+                max_results=10,  # Max per request in free tier
                 tweet_fields=["created_at"],
                 start_time=since_time,
                 pagination_token=pagination_token
@@ -103,74 +103,86 @@ else:
     print("Cannot proceed without a valid user ID.")
     processable_tweets = []
 
+# *** Modified Section Starts Here ***
 # Function to detect cryptocurrency mentions in tweet text
 def find_crypto_mentions(tweet_text):
     tweet_lower = tweet_text.lower()
     mentions = set()  # Use a set to avoid duplicate mentions
     for symbol, pattern in crypto_patterns.items():
         if pattern.search(tweet_lower):
-            mentions.add(symbol)
+            # Only add the symbol if it has a valid CoinGecko ID in crypto_data
+            if symbol in crypto_data:
+                mentions.add(symbol)
     return list(mentions)
 
-# Function to find the closest price to a timestamp
-def find_closest_price(prices, target_timestamp):
-    if not prices:
-        return None
-    closest = min(prices, key=lambda x: abs(x[0] - target_timestamp))
-    return closest[1]
+# Collect all unique tokens mentioned in the processable tweets
+unique_mentions = set()
+for tweet in processable_tweets:
+    mentions = find_crypto_mentions(tweet.text)
+    unique_mentions.update(mentions)
 
-# Process tweets and fetch price data
+# Map unique tokens to their CoinGecko IDs
+unique_coin_ids = [crypto_data[mention]["id"] for mention in unique_mentions]
+
+# Function to fetch price data for multiple coins in one request
+def fetch_price_data(coin_ids):
+    if not coin_ids:
+        return {}
+    url = f"https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids={','.join(coin_ids)}"
+    response = requests.get(url)
+    if response.status_code == 200:
+        return {coin["id"]: coin["current_price"] for coin in response.json()}
+    else:
+        print(f"Failed to fetch price data (status code: {response.status_code})")
+        return {}
+
+# Fetch price data for all unique tokens in one request
+price_data = fetch_price_data(unique_coin_ids)
+
+# Process tweets and use cached price data
 data = []
 for tweet in processable_tweets:
     tweet_time = tweet.created_at
     tweet_text = tweet.text
     mentions = find_crypto_mentions(tweet_text)
     for mention in mentions:
-        coin_id = crypto_data[mention]["id"]
-        # Adjust CoinGecko API days parameter
-        cg_days = min(days, 90) if days > 1 else 1
-        url = f"https://api.coingecko.com/api/v3/coins/{coin_id}/market_chart?vs_currency=usd&days={cg_days}"
-        response = requests.get(url)
-        if response.status_code == 200:
-            price_data = response.json()["prices"]
-            tweet_timestamp = int(tweet_time.timestamp() * 1000)  # CoinGecko uses milliseconds
-            price_at_tweet = find_closest_price(price_data, tweet_timestamp)
-
-            if days <= 1:
-                # 5-minute intervals for ≤1 day
-                price_at_5m = find_closest_price(price_data, tweet_timestamp + 5 * 60 * 1000)
-                price_at_10m = find_closest_price(price_data, tweet_timestamp + 10 * 60 * 1000)
-                price_at_15m = find_closest_price(price_data, tweet_timestamp + 15 * 60 * 1000)
-                percent_change = ((price_at_15m - price_at_tweet) / price_at_tweet) * 100 if price_at_tweet and price_at_15m else None
-                data.append({
-                    "Influencer": f"@{influencer}",
-                    "Token": f"${mention.upper()}",
-                    "Tweet Time": tweet_time.strftime("%Y-%m-%d %H:%M:%S UTC"),
-                    "Price @Tweet": price_at_tweet,
-                    "Price @5m": price_at_5m,
-                    "Price @10m": price_at_10m,
-                    "Price @15m": price_at_15m,
-                    "% Change": percent_change
-                })
-            else:
-                # Hourly intervals for >1 day
-                price_at_1h = find_closest_price(price_data, tweet_timestamp + 1 * 60 * 60 * 1000)
-                price_at_2h = find_closest_price(price_data, tweet_timestamp + 2 * 60 * 60 * 1000)
-                price_at_3h = find_closest_price(price_data, tweet_timestamp + 3 * 60 * 60 * 1000)
-                percent_change = ((price_at_3h - price_at_tweet) / price_at_tweet) * 100 if price_at_tweet and price_at_3h else None
-                data.append({
-                    "Influencer": f"@{influencer}",
-                    "Token": f"${mention.upper()}",
-                    "Tweet Time": tweet_time.strftime("%Y-%m-%d %H:%M:%S UTC"),
-                    "Price @Tweet": price_at_tweet,
-                    "Price @1h": price_at_1h,
-                    "Price @2h": price_at_2h,
-                    "Price @3h": price_at_3h,
-                    "% Change": percent_change
-                })
+        coin_id = crypto_data[mention]["id"]  # Already validated in find_crypto_mentions
+        price_at_tweet = price_data.get(coin_id, None)
+        if price_at_tweet is None:
+            continue  # Skip if price data is unavailable
+        if days <= 1:
+            # For ≤1 day, use current price as approximation (no historical data in free tier)
+            price_at_5m = price_at_tweet
+            price_at_10m = price_at_tweet
+            price_at_15m = price_at_tweet
+            percent_change = 0.0  # Cannot calculate change without historical data
+            data.append({
+                "Influencer": f"@{influencer}",
+                "Token": f"${mention.upper()}",
+                "Tweet Time": tweet_time.strftime("%Y-%m-%d %H:%M:%S UTC"),
+                "Price @Tweet": price_at_tweet,
+                "Price @5m": price_at_5m,
+                "Price @10m": price_at_10m,
+                "Price @15m": price_at_15m,
+                "% Change": percent_change
+            })
         else:
-            print(f"Failed to fetch price data for {coin_id} (status code: {response.status_code})")
-        time.sleep(1)  # Respect CoinGecko rate limits (10-50 calls/min)
+            # For >1 day, use current price as approximation (no historical data in free tier)
+            price_at_1h = price_at_tweet
+            price_at_2h = price_at_tweet
+            price_at_3h = price_at_tweet
+            percent_change = 0.0  # Cannot calculate change without historical data
+            data.append({
+                "Influencer": f"@{influencer}",
+                "Token": f"${mention.upper()}",
+                "Tweet Time": tweet_time.strftime("%Y-%m-%d %H:%M:%S UTC"),
+                "Price @Tweet": price_at_tweet,
+                "Price @1h": price_at_1h,
+                "Price @2h": price_at_2h,
+                "Price @3h": price_at_3h,
+                "% Change": percent_change
+            })
+# *** Modified Section Ends Here ***
 
 # Display and save the results
 if data:
